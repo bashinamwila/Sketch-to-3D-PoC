@@ -144,7 +144,8 @@ class TopologyReconstructor:
             'depth': d_m,
             'pitch': pitch,
             'openings': openings,
-            'scale': px_per_m
+            'scale': px_per_m,
+            'global_px_bounds': (w_px_min, w_px_max)
         }
         logger.info(f"Perspective Reconstruction: {w_m:.1f}x{d_m:.1f}m. Detected {len(openings)} openings.")
         return topology

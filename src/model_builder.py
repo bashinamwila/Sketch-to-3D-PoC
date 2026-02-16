@@ -31,16 +31,22 @@ class ModelBuilder:
             .shell(-self.wall_thickness)
         )
 
-        # 2. INTELLIGENCE: Inject Openings (Multi-Face)
+        # 2. INTELLIGENCE: Inject Openings (Precision Mapping)
         sub_footprints = topology.get('sub_footprints', [])
+        px_min, px_max = topology.get('global_px_bounds', (0, 1000))
+        px_width = px_max - px_min
+        px_per_m = topology.get('scale', 100.0)
+
         for op in topology.get('openings', []):
             try:
+                # 1. Map global pixel X to world X
+                # (rel_x * px_width) = pixels from left
+                world_x = (op['rel_x'] * px_width) / px_per_m
+                
+                # 2. Find parent face Y coordinate
                 parent_label = op.get('parent_label', 'main')
                 part = next((p for p in sub_footprints if p['label'] == parent_label), sub_footprints[0])
                 mbx = part['poly'].bounds
-                
-                # Calculate world position on the front face of this specific part
-                world_x = mbx[0] + (op['rel_x'] * (mbx[2] - mbx[0]))
                 front_y = mbx[1]
                 
                 void = (
@@ -50,7 +56,7 @@ class ModelBuilder:
                 )
                 model = model.cut(void)
             except Exception as e:
-                logger.warning(f"Failed to cut opening: {e}")
+                logger.warning(f"Precision mapping failed for opening: {e}")
 
         # 3. Add Roof Parts
         
