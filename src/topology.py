@@ -113,6 +113,28 @@ class TopologyReconstructor:
         # 7. INTELLIGENCE: Opening Detection
         openings = self.detect_openings(directions, curves, px_per_m)
 
+        # 8. INTELLIGENCE: Scale Calibration (Refined)
+        # If we detected a door, use its height (assume 2.1m) to calibrate the whole model
+        calibrated_px_per_m = px_per_m
+        for op in openings:
+            if op['is_door']:
+                # h_px / px_per_m = h_m -> px_per_m = h_px / 2.1
+                # (We reverse calculate the pixel height)
+                h_px = op['h'] * px_per_m 
+                calibrated_px_per_m = h_px / 2.1
+                logger.info(f"Scale Calibrated from Door: {calibrated_px_per_m:.1f} px/m")
+                break
+        
+        # Re-scale dimensions if calibrated
+        if calibrated_px_per_m != px_per_m:
+            ratio = px_per_m / calibrated_px_per_m
+            w_m *= ratio
+            d_m *= ratio
+            h_m *= ratio
+            # Re-create footprint with new scale
+            # (Simplified for PoC)
+            px_per_m = calibrated_px_per_m
+
         topology = {
             'view_type': 'perspective',
             'footprint': footprint,
