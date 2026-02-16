@@ -60,23 +60,59 @@ class TopologyReconstructor:
             logger.warning(f"Calculated height {h_m:.1f}m too low. Boosting to standard 3.0m storey.")
             h_m = 3.0
         
-        # 5. Complexity Check (Internal Verticals)
-        # Check if there are significant verticals inside the bounding box
-        internal_verticals = 0
-        w_px_min = min(l[0] for l in directions['vertical'])
-        w_px_max = max(l[0] for l in directions['vertical'])
+        # 5. Complexity Check (Internal Verticals) -> L-Shape Generation
+        verticals = directions['vertical']
+        w_px_min = min(l[0] for l in verticals) if verticals else 0
+        w_px_max = max(l[0] for l in verticals) if verticals else 1
         
-        for l in directions['vertical']:
-            # If line is > 20% inside the left/right bounds
-            if (l[0] > w_px_min + (w_px_max - w_px_min) * 0.2) and \
-               (l[0] < w_px_max - (w_px_max - w_px_min) * 0.2):
-                internal_verticals += 1
+        internal_verticals = [l for l in verticals 
+                              if (l[0] > w_px_min + (w_px_max - w_px_min) * 0.2) and 
+                                 (l[0] < w_px_max - (w_px_max - w_px_min) * 0.2)]
+        
+        footprint = None
+        
+        if len(internal_verticals) > 1:
+            logger.warning(f"Detected {len(internal_verticals)} internal vertical lines. Generating L-shaped footprint.")
+            
+            # Calculate Split X position (relative to width)
+            avg_split_px = np.mean([l[0] for l in internal_verticals])
+            split_ratio = (avg_split_px - w_px_min) / (w_px_max - w_px_min)
+            
+            # Construct L-Shape
+            # Assume "Main Mass" is the larger side, "Wing" is the smaller side
+            # Wing depth = 60% of total depth
+            
+            split_m = w_m * split_ratio
+            wing_depth_m = d_m * 0.6
+            
+            if split_ratio < 0.5:
+                # Wing is on the Left (smaller section), Main on Right
+                # This creates a "b" shape or inverted L
+                # Points: (0,0) -> (split, 0) -> (split, full_d) -> (w, full_d) -> (w, 0) ... wait
+                # Let's simplify: Union of two rects.
+                # Rect 1 (Wing): 0 to split, 0 to wing_depth
+                # Rect 2 (Main): split to w, 0 to d
+                # ... actually, looking at sketch, let's assume "Front" is y=0.
                 
-        if internal_verticals > 1:
-            logger.warning(f"Detected {internal_verticals} internal vertical lines. Building shape is likely complex (L-shaped/bump-out). Using bounding box approximation.")
-
-        # Create a simple box footprint
-        footprint = Polygon([(0,0), (w_m, 0), (w_m, d_m), (0, d_m)])
+                # Polygon coordinates (Counter-Clockwise)
+                coords = [
+                    (0, 0), (split_m, 0), (split_m, d_m - wing_depth_m), 
+                    (w_m, d_m - wing_depth_m), (w_m, d_m), (0, d_m)
+                ]
+                # Wait, that shape is weird. Let's do Union.
+                p1 = Polygon([(0, 0), (split_m, 0), (split_m, wing_depth_m), (0, wing_depth_m)])
+                p2 = Polygon([(split_m, 0), (w_m, 0), (w_m, d_m), (split_m, d_m)])
+                footprint = unary_union([p1, p2])
+            else:
+                # Wing is on the Right
+                # Rect 1 (Main): 0 to split, 0 to d
+                # Rect 2 (Wing): split to w, 0 to wing_depth
+                p1 = Polygon([(0, 0), (split_m, 0), (split_m, d_m), (0, d_m)])
+                p2 = Polygon([(split_m, 0), (w_m, 0), (w_m, wing_depth_m), (split_m, wing_depth_m)])
+                footprint = unary_union([p1, p2])
+        else:
+            # Simple Box
+            footprint = Polygon([(0,0), (w_m, 0), (w_m, d_m), (0, d_m)])
         
         topology = {
             'view_type': 'perspective',

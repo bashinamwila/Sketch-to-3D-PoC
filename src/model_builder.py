@@ -33,12 +33,65 @@ class ModelBuilder:
         # 2. Shell to create walls
         model = model.shell(-self.wall_thickness)
 
-        # 4. Add Roof (Hip Roof for complex sketches)
-        # Use hip roof as default for perspective mode
-        model = self.add_hip_roof(model, footprint, wall_h)
+        # 4. Add Roof
+        # Attempt Tapered Hip Roof for all shapes first
+        try:
+            model = self.add_tapered_hip_roof(model, footprint, wall_h)
+        except Exception as e:
+            logger.warning(f"Tapered roof failed: {e}. Using Flat Roof fallback.")
+            model = self.add_flat_roof_parapet(model, footprint, wall_h)
 
         logger.info("3D model generation complete.")
         return model
+
+    def add_tapered_hip_roof(self, model, footprint, wall_h):
+        """
+        Create a hip roof using tapered extrusion.
+        """
+        # Create a workplane at wall height
+        roof_plane = cq.Workplane("XY").workplane(offset=wall_h)
+        
+        # Extrude the footprint with a taper (angle in degrees)
+        # 45 degrees is a standard steep roof.
+        # We extrude by a height proportional to the building size
+        minx, miny, maxx, maxy = footprint.bounds
+        roof_h = min(maxx - minx, maxy - miny) * 0.4
+        
+        roof = (
+            roof_plane
+            .polyline(list(footprint.exterior.coords))
+            .close()
+            .extrude(roof_h, taper=45) # 45 deg taper creates hip effect
+        )
+        
+        return model.union(roof)
+
+    def add_flat_roof_parapet(self, model, footprint, wall_h):
+        """
+        Add a flat roof with a parapet wall for complex shapes.
+        """
+        # 1. Create the roof slab
+        roof_slab = (
+            cq.Workplane("XY")
+            .workplane(offset=wall_h - 0.2)
+            .polyline(list(footprint.exterior.coords))
+            .close()
+            .extrude(0.2)
+        )
+        
+        # 2. Create the parapet (rim)
+        # Extrude a thin shell upwards
+        parapet = (
+            cq.Workplane("XY")
+            .workplane(offset=wall_h)
+            .polyline(list(footprint.exterior.coords))
+            .close()
+            .extrude(0.5) # 0.5m tall parapet
+        )
+        # Hollow it out to make it a rim
+        parapet = parapet.faces(">Z").shell(-0.2)
+        
+        return model.union(roof_slab).union(parapet)
 
     def add_hip_roof(self, model, footprint, wall_h):
         """

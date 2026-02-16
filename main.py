@@ -35,7 +35,7 @@ def run_pipeline(image_path, output_dir="output"):
     model = builder.build(topology)
     
     if model:
-        builder.export(model, os.path.join(output_dir, "building_model.step"))
+        builder.export(model, os.path.join(output_dir, "building_model.stl"))
         
         # Stage 6: Camera-Aligned Snapshot
         renderer = Renderer()
