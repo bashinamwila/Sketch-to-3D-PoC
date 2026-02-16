@@ -67,9 +67,9 @@ class LineExtractor:
 
     def classify_directions(self, lines):
         """
-        Group lines into Vertical, Left-VP, and Right-VP buckets based on slope.
+        Group lines into Vertical, Left-VP, Right-VP, and Diagonal (Roof) buckets based on slope.
         """
-        categories = {'vertical': [], 'left_vp': [], 'right_vp': [], 'other': []}
+        categories = {'vertical': [], 'left_vp': [], 'right_vp': [], 'diagonal': []}
         for l in lines:
             x1, y1, x2, y2 = l
             dx, dy = x2 - x1, y2 - y1
@@ -78,12 +78,14 @@ class LineExtractor:
             # Broaden vertical threshold for hand sketches (70 to 90 degrees)
             if 70 < angle <= 90:
                 categories['vertical'].append(l)
-            else:
+            elif angle < 20: # Near horizontal perspective lines
                 slope = dy / (dx + 1e-6)
                 if slope > 0:
                     categories['right_vp'].append(l)
                 else:
                     categories['left_vp'].append(l)
+            else:
+                categories['diagonal'].append(l)
         return categories
 
     def cluster_lines(self, lines):

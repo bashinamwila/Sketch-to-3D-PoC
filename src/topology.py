@@ -119,6 +119,20 @@ class TopologyReconstructor:
             footprint = rect
             sub_footprints = [{'poly': rect, 'roof_type': 'hip', 'label': 'main'}]
         
+        # 6. Roof Pitch Inference
+        diagonals = directions.get('diagonal', [])
+        if diagonals:
+            slopes = []
+            for l in diagonals:
+                dx, dy = l[2] - l[0], l[3] - l[1]
+                slopes.append(abs(dy / (dx + 1e-6)))
+            inferred_pitch = np.mean(slopes)
+            # Clamp to reasonable architectural range (20% to 100%)
+            pitch = max(0.2, min(1.0, inferred_pitch))
+            logger.info(f"Inferred Roof Pitch from sketch: {pitch:.2f}")
+        else:
+            pitch = 0.4 # Default
+
         topology = {
             'view_type': 'perspective',
             'footprint': footprint,
@@ -126,6 +140,7 @@ class TopologyReconstructor:
             'height': h_m,
             'width': w_m,
             'depth': d_m,
+            'pitch': pitch,
             'scale': px_per_m
         }
         logger.info(f"Perspective Mode (12m rule): Estimated {w_m:.1f}m x {d_m:.1f}m x {h_m:.1f}m box.")
