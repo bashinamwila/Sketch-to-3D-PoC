@@ -22,21 +22,60 @@ class TopologyReconstructor:
 
     def reconstruct_perspective(self, directions):
         """
-        Estimate 3D box dimensions from perspective lines.
+        Estimate 3D box dimensions from perspective lines using the 12m rule.
         """
-        # 1. Height from verticals
+        # 1. Height from verticals (pixels)
         heights = [np.sqrt((l[2]-l[0])**2 + (l[3]-l[1])**2) for l in directions['vertical']]
         avg_h_px = np.mean(heights) if heights else 300
         
-        # 2. Width/Depth from perspective lines
-        widths = [np.sqrt((l[2]-l[0])**2 + (l[3]-l[1])**2) for l in directions['left_vp']]
-        depths = [np.sqrt((l[2]-l[0])**2 + (l[3]-l[1])**2) for l in directions['right_vp']]
-        
-        w_m = (np.max(widths) if widths else 500) / self.pixels_per_metre
-        d_m = (np.max(depths) if depths else 500) / self.pixels_per_metre
-        h_m = avg_h_px / self.pixels_per_metre
+        # 2. Width/Depth from perspective lines (pixels)
+        # Use total span of segments in each direction
+        def get_span(lines):
+            if not lines: return 0
+            all_pts = []
+            for l in lines: all_pts.extend([(l[0], l[1]), (l[2], l[3])])
+            all_pts = np.array(all_pts)
+            return np.max(np.linalg.norm(all_pts[:, None] - all_pts, axis=2))
 
-        # Create a simple box footprint for the builder
+        w_px = get_span(directions['left_vp'])
+        d_px = get_span(directions['right_vp'])
+        
+        # 3. Apply 12m Rule (PRD 4.4.4)
+        # Longest horizontal dimension = 12.0m
+        max_dim_px = max(w_px, d_px)
+        if max_dim_px == 0: max_dim_px = 500
+        
+        px_per_m = max_dim_px / 12.0
+        
+        w_m = w_px / px_per_m
+        d_m = d_px / px_per_m
+        h_m = avg_h_px / px_per_m
+
+        # Cap height to realistic ratio if it's too tall, or boost if too short
+        max_dim_m = max(w_m, d_m)
+        
+        # 4. Height Sanity Check
+        # If height is < 2.5m for a building > 5m wide, likely under-estimated due to perspective
+        if max_dim_m > 5.0 and h_m < 2.5:
+            logger.warning(f"Calculated height {h_m:.1f}m too low. Boosting to standard 3.0m storey.")
+            h_m = 3.0
+        
+        # 5. Complexity Check (Internal Verticals)
+        # Check if there are significant verticals inside the bounding box
+        internal_verticals = 0
+        w_px_min = min(l[0] for l in directions['vertical'])
+        w_px_max = max(l[0] for l in directions['vertical'])
+        
+        for l in directions['vertical']:
+            # If line is > 20% inside the left/right bounds
+            if (l[0] > w_px_min + (w_px_max - w_px_min) * 0.2) and \
+               (l[0] < w_px_max - (w_px_max - w_px_min) * 0.2):
+                internal_verticals += 1
+                
+        if internal_verticals > 1:
+            logger.warning(f"Detected {internal_verticals} internal vertical lines. Building shape is likely complex (L-shaped/bump-out). Using bounding box approximation.")
+
+        # Create a simple box footprint
         footprint = Polygon([(0,0), (w_m, 0), (w_m, d_m), (0, d_m)])
         
         topology = {
@@ -45,9 +84,9 @@ class TopologyReconstructor:
             'height': h_m,
             'width': w_m,
             'depth': d_m,
-            'scale': self.pixels_per_metre
+            'scale': px_per_m
         }
-        logger.info(f"Perspective Mode: Estimated {w_m:.1f}m x {d_m:.1f}m x {h_m:.1f}m box.")
+        logger.info(f"Perspective Mode (12m rule): Estimated {w_m:.1f}m x {d_m:.1f}m x {h_m:.1f}m box.")
         return topology
 
     def reconstruct_plan(self, lines, vertices, curves):

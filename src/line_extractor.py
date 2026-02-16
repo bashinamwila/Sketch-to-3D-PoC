@@ -42,9 +42,28 @@ class LineExtractor:
 
         # 6. Directional Classification for Perspective
         directions = self.classify_directions(snapped_lines)
+        
+        # 7. Vanishing Point Estimation from Categories
+        directions['vp_left'] = self.estimate_vp(directions['left_vp'])
+        directions['vp_right'] = self.estimate_vp(directions['right_vp'])
 
-        logger.info(f"Extracted {len(snapped_lines)} lines and {len(vertices)} vertices. Dirs: { {k: len(v) for k,v in directions.items()} }")
+        logger.info(f"Extracted {len(snapped_lines)} lines. VPs: L={directions['vp_left']}, R={directions['vp_right']}")
         return snapped_lines, vertices, directions
+
+    def estimate_vp(self, lines):
+        """
+        Estimate a vanishing point from a set of lines.
+        """
+        if len(lines) < 2: return None
+        intersections = []
+        # Sample some intersections to find a centroid
+        for i in range(min(10, len(lines))):
+            for j in range(i + 1, min(10, len(lines))):
+                pt = self.line_intersection(lines[i], lines[j])
+                if pt: intersections.append(pt)
+        
+        if not intersections: return None
+        return np.mean(intersections, axis=0).astype(int).tolist()
 
     def classify_directions(self, lines):
         """
@@ -56,7 +75,8 @@ class LineExtractor:
             dx, dy = x2 - x1, y2 - y1
             angle = np.degrees(np.arctan2(abs(dy), abs(dx)))
             
-            if 75 < angle <= 90:
+            # Broaden vertical threshold for hand sketches (70 to 90 degrees)
+            if 70 < angle <= 90:
                 categories['vertical'].append(l)
             else:
                 slope = dy / (dx + 1e-6)
