@@ -83,14 +83,20 @@ class TopologyReconstructor:
             wing_depth_ratio = self.find_optimal_wing_depth(vertices, px_per_m)
             wing_depth_m = d_m * wing_depth_ratio
             
+            # INTELLIGENCE: Protrusion Offset
+            # The wing is 'closer' to camera (at y=0). Main block is set back.
+            protrusion_offset_m = d_m * 0.2
+            
             if wing_on_right:
-                logger.info(f"Orientation: Wing on RIGHT. Optimized Depth Ratio: {wing_depth_ratio:.2f}")
-                rect_main = Polygon([(0, 0), (split_m, 0), (split_m, d_m), (0, d_m)])
+                logger.info(f"Orientation: Wing on RIGHT. Offset: {protrusion_offset_m:.1f}m")
+                rect_main = Polygon([(0, protrusion_offset_m), (split_m, protrusion_offset_m), 
+                                     (split_m, d_m + protrusion_offset_m), (0, d_m + protrusion_offset_m)])
                 rect_wing = Polygon([(split_m, 0), (w_m, 0), (w_m, wing_depth_m), (split_m, wing_depth_m)])
             else:
-                logger.info(f"Orientation: Wing on LEFT. Optimized Depth Ratio: {wing_depth_ratio:.2f}")
+                logger.info(f"Orientation: Wing on LEFT. Offset: {protrusion_offset_m:.1f}m")
                 rect_wing = Polygon([(0, 0), (split_m, 0), (split_m, wing_depth_m), (0, wing_depth_m)])
-                rect_main = Polygon([(split_m, 0), (w_m, 0), (w_m, d_m), (split_m, d_m)])
+                rect_main = Polygon([(split_m, protrusion_offset_m), (w_m, protrusion_offset_m), 
+                                     (w_m, d_m + protrusion_offset_m), (split_m, d_m + protrusion_offset_m)])
             
             sub_footprints = [
                 {'poly': rect_main, 'roof_type': 'hip', 'label': 'main'},
