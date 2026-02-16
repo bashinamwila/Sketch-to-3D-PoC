@@ -15,12 +15,12 @@ class TopologyReconstructor:
         
         # Check if we should use Perspective Mode
         if directions and len(directions.get('vertical', [])) > 2:
-            return self.reconstruct_perspective(directions)
+            return self.reconstruct_perspective(directions, vertices)
 
         # Fallback to Plan Mode
         return self.reconstruct_plan(lines, vertices, curves)
 
-    def reconstruct_perspective(self, directions):
+    def reconstruct_perspective(self, directions, vertices):
         """
         Estimate 3D box dimensions from perspective lines using the 12m rule.
         """
@@ -89,24 +89,22 @@ class TopologyReconstructor:
             # Calculate Split Position
             avg_split_px = np.mean([l[0] for l in internal_verticals])
             split_ratio = (avg_split_px - w_px_min) / width_px
-            
-            # Clamp split ratio to reasonable bounds for an L-shape (e.g. 0.3 to 0.7)
             split_ratio = max(0.3, min(0.7, split_ratio))
-            
             split_m = w_m * split_ratio
-            wing_depth_m = d_m * 0.6 # Assume wing is 60% of depth
+
+            # INTELLIGENCE LAYER: Optimize wing depth based on vertex support
+            wing_depth_ratio = self.find_optimal_wing_depth(vertices, split_m, d_m, wing_on_right)
+            wing_depth_m = d_m * wing_depth_ratio
             
-            rect1 = None
-            rect2 = None
+            rect_main = None
+            rect_wing = None
 
             if wing_on_right:
-                logger.info("Orientation: Wing on RIGHT")
-                # Main Block (Left), Wing (Right)
+                logger.info(f"Orientation: Wing on RIGHT. Optimized Depth Ratio: {wing_depth_ratio:.2f}")
                 rect_main = Polygon([(0, 0), (split_m, 0), (split_m, d_m), (0, d_m)])
                 rect_wing = Polygon([(split_m, 0), (w_m, 0), (w_m, wing_depth_m), (split_m, wing_depth_m)])
             else:
-                logger.info("Orientation: Wing on LEFT")
-                # Wing (Left), Main Block (Right)
+                logger.info(f"Orientation: Wing on LEFT. Optimized Depth Ratio: {wing_depth_ratio:.2f}")
                 rect_wing = Polygon([(0, 0), (split_m, 0), (split_m, wing_depth_m), (0, wing_depth_m)])
                 rect_main = Polygon([(split_m, 0), (w_m, 0), (w_m, d_m), (split_m, d_m)])
             
@@ -124,12 +122,45 @@ class TopologyReconstructor:
         topology = {
             'view_type': 'perspective',
             'footprint': footprint,
-            'sub_footprints': sub_footprints, # Pass decomposition to builder
+            'sub_footprints': sub_footprints,
             'height': h_m,
             'width': w_m,
             'depth': d_m,
             'scale': px_per_m
         }
+        logger.info(f"Perspective Mode (12m rule): Estimated {w_m:.1f}m x {d_m:.1f}m x {h_m:.1f}m box.")
+        return topology
+
+    def find_optimal_wing_depth(self, vertices, split_m, total_d_m, wing_on_right):
+        """
+        Intelligence Layer: Search for the wing depth that most vertices 'agree' with.
+        """
+        if not vertices:
+            return 0.6 # Default fallback
+            
+        best_ratio = 0.6
+        max_support = -1
+        
+        # Candidate ratios from 30% to 90%
+        for ratio in np.linspace(0.3, 0.9, 7):
+            candidate_depth = total_d_m * ratio
+            
+            # Define the 'probed' boundary line in world coordinates
+            # This is the line where the wing ends
+            support = 0
+            for vx, vy in vertices:
+                # Convert vertex back to normalized m (simplified)
+                # We check if vertices align with the proposed depth line
+                # Note: This is a simplified heuristic for the PoC
+                norm_vy = (vy / self.pixels_per_metre) # very rough
+                if abs(norm_vy - candidate_depth) < 0.5: # 0.5m tolerance
+                    support += 1
+            
+            if support > max_support:
+                max_support = support
+                best_ratio = ratio
+                
+        return best_ratio
         logger.info(f"Perspective Mode (12m rule): Estimated {w_m:.1f}m x {d_m:.1f}m x {h_m:.1f}m box.")
         return topology
 
