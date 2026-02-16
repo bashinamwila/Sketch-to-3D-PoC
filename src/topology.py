@@ -110,7 +110,7 @@ class TopologyReconstructor:
             
             sub_footprints = [
                 {'poly': rect_main, 'roof_type': 'hip', 'label': 'main'},
-                {'poly': rect_wing, 'roof_type': 'gable', 'label': 'wing'}
+                {'poly': rect_wing, 'roof_type': 'gable', 'label': 'wing', 'gable_face': 'front'}
             ]
             footprint = unary_union([rect_main, rect_wing])
         else:
