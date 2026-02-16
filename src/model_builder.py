@@ -31,8 +31,28 @@ class ModelBuilder:
             .shell(-self.wall_thickness)
         )
 
-        # 2. Add Roof Parts
+        # 2. INTELLIGENCE: Inject Openings (Multi-Face)
         sub_footprints = topology.get('sub_footprints', [])
+        for op in topology.get('openings', []):
+            try:
+                parent_label = op.get('parent_label', 'main')
+                part = next((p for p in sub_footprints if p['label'] == parent_label), sub_footprints[0])
+                mbx = part['poly'].bounds
+                
+                # Calculate world position on the front face of this specific part
+                world_x = mbx[0] + (op['rel_x'] * (mbx[2] - mbx[0]))
+                front_y = mbx[1]
+                
+                void = (
+                    cq.Workplane("XZ", origin=(world_x, front_y, op['z_level'] + op['h']/2))
+                    .rect(op['w'], op['h'])
+                    .extrude(self.wall_thickness * 3, both=True)
+                )
+                model = model.cut(void)
+            except Exception as e:
+                logger.warning(f"Failed to cut opening: {e}")
+
+        # 3. Add Roof Parts
         
         # Consistent global ridge height
         main_part = next((p for p in sub_footprints if p['label'] == 'main'), sub_footprints[0])

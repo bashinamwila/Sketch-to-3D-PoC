@@ -175,10 +175,12 @@ class TopologyReconstructor:
             if 15 < w_px < 200 and 15 < h_px < 250:
                 if 0.3 < (w_px / h_px) < 3.0:
                     rel_x = ((min_p[1] + max_p[1])/2 - w_px_min) / width_px
+                    # Assign to parent part based on rel_x
                     is_door = (h_px / px_per_m) > 1.8
                     openings.append({
                         'w': w_px / px_per_m, 'h': h_px / px_per_m, 
-                        'rel_x': rel_x, 'is_door': is_door, 'z_level': 0.0 if is_door else 0.9
+                        'rel_x': rel_x, 'is_door': is_door, 'z_level': 0.0 if is_door else 0.9,
+                        'parent_label': 'wing' if rel_x > 0.5 else 'main'
                     })
 
         unique_openings = []
