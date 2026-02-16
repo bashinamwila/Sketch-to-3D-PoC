@@ -31,7 +31,22 @@ class ModelBuilder:
         # 2. Shell
         model = model.shell(-self.wall_thickness)
 
-        # 3. Add Roof
+        # 3. INTELLIGENCE: Inject Openings (Windows/Doors)
+        total_w = topology.get('width', 10.0)
+        for op in topology.get('openings', []):
+            try:
+                # Map relative X to world X (Front wall projection)
+                world_x = op['rel_x'] * total_w
+                void = (
+                    cq.Workplane("XZ", origin=(world_x, 0, op['z_level'] + op['h']/2))
+                    .rect(op['w'], op['h'])
+                    .extrude(self.wall_thickness * 3, both=True)
+                )
+                model = model.cut(void)
+            except Exception as e:
+                logger.warning(f"Failed to cut opening: {e}")
+
+        # 4. Add Roof
         sub_footprints = topology.get('sub_footprints', [])
         
         if len(sub_footprints) > 1:
