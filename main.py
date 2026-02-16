@@ -28,7 +28,7 @@ def run_pipeline(image_path, output_dir="output"):
     
     # Stage 4: Topology Reconstruction
     topology_recon = TopologyReconstructor()
-    topology = topology_recon.reconstruct(lines, curves, edge_img.shape)
+    topology = topology_recon.reconstruct(lines, vertices, curves, edge_img.shape)
     
     # Stage 5: CadQuery Model Generation
     builder = ModelBuilder()

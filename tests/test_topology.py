@@ -12,7 +12,7 @@ def test_topology_reconstruction():
     ]
     
     reconstructor = TopologyReconstructor(pixels_per_metre=100)
-    topology = reconstructor.reconstruct(lines, [], (400, 400))
+    topology = reconstructor.reconstruct(lines, [], [], (400, 400))
     
     assert 'footprint' in topology
     footprint = topology['footprint']

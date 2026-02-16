@@ -49,7 +49,7 @@ class CurveExtractor:
         """
         line_mask = np.zeros_like(edge_image)
         for x1, y1, x2, y2 in lines:
-            cv2.line(line_mask, (x1, y1), (x2, y2), 255, 5) # Dilated line mask
+            cv2.line(line_mask, (x1, y1), (x2, y2), 255, 7) # Increased dilation
         
         residual = cv2.subtract(edge_image, line_mask)
         return residual
@@ -57,37 +57,46 @@ class CurveExtractor:
     def order_points(self, points):
         """
         Order points sequentially using greedy nearest neighbour.
+        Optimized version using KDTree more efficiently.
         """
-        if len(points) == 0: return points
+        if len(points) <= 1: return points
         
         # Start from point with minimum y (or x)
         start_idx = np.argmin(points[:, 0])
-        ordered = [points[start_idx]]
-        remaining = list(range(len(points)))
-        remaining.remove(start_idx)
+        ordered = []
+        remaining_mask = np.ones(len(points), dtype=bool)
         
+        current_idx = start_idx
         tree = KDTree(points)
         
-        while remaining:
-            last = ordered[-1]
-            dist, idxs = tree.query(last, k=min(10, len(points)))
-            found = False
+        for _ in range(len(points)):
+            ordered.append(points[current_idx])
+            remaining_mask[current_idx] = False
+            
+            # Find nearest among remaining
+            # Query more points to find one that is still in remaining_mask
+            dists, idxs = tree.query(points[current_idx], k=min(20, len(points)))
+            
+            next_idx = -1
             for idx in idxs:
-                if idx in remaining:
-                    ordered.append(points[idx])
-                    remaining.remove(idx)
-                    found = True
+                if remaining_mask[idx]:
+                    next_idx = idx
                     break
-            if not found:
-                # Jump to nearest remaining point if gap encountered
-                dist, idx = tree.query(last, k=len(points))
-                for i in idx:
-                    if i in remaining:
-                        ordered.append(points[i])
-                        remaining.remove(i)
-                        found = True
+            
+            if next_idx == -1:
+                # Fallback: search all points if local neighborhood is empty
+                # This only happens if there's a large gap
+                remaining_indices = np.where(remaining_mask)[0]
+                if len(remaining_indices) == 0:
+                    break
+                dists, idxs = tree.query(points[current_idx], k=len(points))
+                for idx in idxs:
+                    if remaining_mask[idx]:
+                        next_idx = idx
                         break
-                if not found: break
+            
+            if next_idx == -1: break
+            current_idx = next_idx
         
         return np.array(ordered)
 
