@@ -35,16 +35,24 @@ class ModelBuilder:
         model = model.shell(-self.wall_thickness)
 
         # 4. Add Roof
-        # Check for composite decomposition (L-shape)
         sub_footprints = topology.get('sub_footprints', [])
         
         if len(sub_footprints) > 1:
-            logger.info(f"Composite footprint detected ({len(sub_footprints)} parts). Using Medial Hip Roof.")
-            for rect in sub_footprints:
-                model = self.add_medial_hip_roof(model, rect, wall_h)
+            logger.info(f"Composite footprint detected ({len(sub_footprints)} parts).")
+            for part in sub_footprints:
+                poly = part['poly']
+                rtype = part['roof_type']
+                if rtype == 'gable':
+                    model = self.add_gable_roof(model, poly, wall_h)
+                else:
+                    model = self.add_medial_hip_roof(model, poly, wall_h)
         else:
             # Simple shape
-            model = self.add_medial_hip_roof(model, footprint, wall_h)
+            part = sub_footprints[0] if sub_footprints else {'poly': footprint, 'roof_type': 'hip'}
+            if part.get('roof_type') == 'gable':
+                model = self.add_gable_roof(model, part['poly'], wall_h)
+            else:
+                model = self.add_medial_hip_roof(model, part['poly'], wall_h)
 
         logger.info("3D model generation complete.")
         return model
@@ -65,12 +73,7 @@ class ModelBuilder:
         mid_x = (minx + maxx) / 2
         mid_y = (miny + maxy) / 2
         
-        if width > depth:
-            p1, p2 = (mid_x - ridge_len/2, mid_y), (mid_x + ridge_len/2, mid_y)
-        else:
-            p1, p2 = (mid_x, mid_y - ridge_len/2), (mid_x, mid_y + ridge_len/2)
-            
-        # Create base wire
+        # Base wire
         base_wire = (
             cq.Workplane("XY")
             .workplane(offset=wall_h)
@@ -79,9 +82,15 @@ class ModelBuilder:
             .wire()
             .val()
         )
-        
+
+        # Define Ridge Points
+        if width > depth:
+            p1, p2 = (mid_x - ridge_len/2, mid_y), (mid_x + ridge_len/2, mid_y)
+        else:
+            p1, p2 = (mid_x, mid_y - ridge_len/2), (mid_x, mid_y + ridge_len/2)
+
         try:
-            # Try lofting to a ridge wire
+            # Create a ridge wire
             ridge_wire = (
                 cq.Workplane("XY")
                 .workplane(offset=ridge_h)
@@ -92,8 +101,7 @@ class ModelBuilder:
             roof = cq.Workplane("XY").add(base_wire).add(ridge_wire).toPending().loft()
             return model.union(roof)
         except Exception:
-            # Fallback to a tiny rectangle (acts as a point)
-            logger.warning("Medial loft failed. Falling back to near-point ridge.")
+            # Fallback to tiny rectangle
             peak_wire = (
                 cq.Workplane("XY")
                 .workplane(offset=ridge_h)
@@ -104,6 +112,43 @@ class ModelBuilder:
             )
             roof = cq.Workplane("XY").add(base_wire).add(peak_wire).toPending().loft()
             return model.union(roof)
+
+    def add_gable_roof(self, model, footprint, wall_h):
+        """
+        Add a gable roof (triangular end). 
+        Extrudes a triangle along the length of the rectangle.
+        """
+        minx, miny, maxx, maxy = footprint.bounds
+        width = maxx - minx
+        depth = maxy - miny
+        
+        # Decide orientation based on which side is longer
+        if width > depth:
+            # Gable ends are on Left/Right, ridge is along X
+            mid_y = (miny + maxy) / 2
+            ridge_h = wall_h + (depth * 0.5)
+            # Create triangle on YZ plane and extrude along X
+            roof = (
+                cq.Workplane("YZ")
+                .workplane(offset=minx)
+                .polyline([(miny, wall_h), (mid_y, ridge_h), (maxy, wall_h)])
+                .close()
+                .extrude(width)
+            )
+        else:
+            # Gable ends are on Front/Back, ridge is along Y
+            mid_x = (minx + maxx) / 2
+            ridge_h = wall_h + (width * 0.5)
+            # Create triangle on XZ plane and extrude along Y
+            roof = (
+                cq.Workplane("XZ")
+                .workplane(offset=miny)
+                .polyline([(minx, wall_h), (mid_x, ridge_h), (maxx, wall_h)])
+                .close()
+                .extrude(depth)
+            )
+        
+        return model.union(roof)
 
     def export(self, model, filename):
         """

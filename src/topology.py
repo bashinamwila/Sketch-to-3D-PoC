@@ -100,26 +100,26 @@ class TopologyReconstructor:
             rect2 = None
 
             if wing_on_right:
-                # Wing is on the Right
-                # Rect 1 (Main Block): Left side, full depth
-                rect1 = Polygon([(0, 0), (split_m, 0), (split_m, d_m), (0, d_m)])
-                # Rect 2 (Wing): Right side, partial depth (aligned to front or back? Let's assume Back/Top alignment for L)
-                # Aligning to 'back' (d_m) usually looks better for house additions
-                rect2 = Polygon([(split_m, 0), (w_m, 0), (w_m, wing_depth_m), (split_m, wing_depth_m)])
+                logger.info("Orientation: Wing on RIGHT")
+                # Main Block (Left), Wing (Right)
+                rect_main = Polygon([(0, 0), (split_m, 0), (split_m, d_m), (0, d_m)])
+                rect_wing = Polygon([(split_m, 0), (w_m, 0), (w_m, wing_depth_m), (split_m, wing_depth_m)])
             else:
-                # Wing is on the Left
-                # Rect 1 (Wing): Left side, partial depth
-                rect1 = Polygon([(0, 0), (split_m, 0), (split_m, wing_depth_m), (0, wing_depth_m)])
-                # Rect 2 (Main Block): Right side, full depth
-                rect2 = Polygon([(split_m, 0), (w_m, 0), (w_m, d_m), (split_m, d_m)])
+                logger.info("Orientation: Wing on LEFT")
+                # Wing (Left), Main Block (Right)
+                rect_wing = Polygon([(0, 0), (split_m, 0), (split_m, wing_depth_m), (0, wing_depth_m)])
+                rect_main = Polygon([(split_m, 0), (w_m, 0), (w_m, d_m), (split_m, d_m)])
             
-            sub_footprints = [rect1, rect2]
-            footprint = unary_union(sub_footprints)
+            sub_footprints = [
+                {'poly': rect_main, 'roof_type': 'hip', 'label': 'main'},
+                {'poly': rect_wing, 'roof_type': 'gable', 'label': 'wing'}
+            ]
+            footprint = unary_union([rect_main, rect_wing])
         else:
             # Simple Box
             rect = Polygon([(0,0), (w_m, 0), (w_m, d_m), (0, d_m)])
             footprint = rect
-            sub_footprints = [rect]
+            sub_footprints = [{'poly': rect, 'roof_type': 'hip', 'label': 'main'}]
         
         topology = {
             'view_type': 'perspective',
