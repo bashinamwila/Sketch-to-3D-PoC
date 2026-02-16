@@ -15,12 +15,12 @@ class TopologyReconstructor:
         
         # Check if we should use Perspective Mode
         if directions and len(directions.get('vertical', [])) > 2:
-            return self.reconstruct_perspective(directions, vertices)
+            return self.reconstruct_perspective(directions, vertices, img_shape)
 
         # Fallback to Plan Mode
         return self.reconstruct_plan(lines, vertices, curves)
 
-    def reconstruct_perspective(self, directions, vertices):
+    def reconstruct_perspective(self, directions, vertices, img_shape):
         """
         Estimate 3D box dimensions from perspective lines using the 12m rule.
         """
@@ -121,17 +121,14 @@ class TopologyReconstructor:
         
         # 6. Roof Pitch Inference
         diagonals = directions.get('diagonal', [])
+        # ... (keep existing pitch logic)
+        pitch = 0.4
         if diagonals:
-            slopes = []
-            for l in diagonals:
-                dx, dy = l[2] - l[0], l[3] - l[1]
-                slopes.append(abs(dy / (dx + 1e-6)))
-            inferred_pitch = np.mean(slopes)
-            # Clamp to reasonable architectural range (20% to 100%)
-            pitch = max(0.2, min(1.0, inferred_pitch))
-            logger.info(f"Inferred Roof Pitch from sketch: {pitch:.2f}")
-        else:
-            pitch = 0.4 # Default
+            slopes = [abs((l[3]-l[1])/(l[2]-l[0]+1e-6)) for l in diagonals]
+            pitch = max(0.2, min(1.0, np.mean(slopes)))
+
+        # 7. INTELLIGENCE: Opening Detection (Windows/Doors)
+        openings = self.detect_openings(img_shape, directions)
 
         topology = {
             'view_type': 'perspective',
@@ -141,8 +138,41 @@ class TopologyReconstructor:
             'width': w_m,
             'depth': d_m,
             'pitch': pitch,
+            'openings': openings,
             'scale': px_per_m
         }
+        logger.info(f"Perspective Mode: {w_m:.1f}x{d_m:.1f}m. Detected {len(openings)} openings.")
+        return topology
+
+    def detect_openings(self, img_shape, directions):
+        """
+        Identify windows and doors from vertices and internal lines.
+        Heuristic: Vertical lines that are short and grouped.
+        """
+        openings = []
+        verticals = directions.get('vertical', [])
+        if len(verticals) < 4: return []
+        
+        # Group nearby vertical lines into potential window frames
+        for i in range(len(verticals)):
+            for j in range(i + 1, len(verticals)):
+                l1, l2 = verticals[i], verticals[j]
+                # If they are close horizontally and similar height
+                dist_x = abs(l1[0] - l2[0])
+                if 20 < dist_x < 100:
+                    h1 = abs(l1[3] - l1[1])
+                    h2 = abs(l2[3] - l2[1])
+                    if abs(h1 - h2) < 20:
+                        # Likely a window/door!
+                        w_m = dist_x / self.pixels_per_metre
+                        h_m = max(h1, h2) / self.pixels_per_metre
+                        # Center point
+                        cx = (l1[0] + l2[0]) / 2
+                        cy = (l1[1] + l1[3] + l2[1] + l2[3]) / 4
+                        # World coords (simplified projection)
+                        wx = (cx - (img_shape[1]/2)) / self.pixels_per_metre
+                        openings.append({'w': w_m, 'h': h_m, 'x': wx, 'y': cy})
+        return openings
         logger.info(f"Perspective Mode (12m rule): Estimated {w_m:.1f}m x {d_m:.1f}m x {h_m:.1f}m box.")
         return topology
 
