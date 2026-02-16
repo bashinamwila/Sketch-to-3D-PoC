@@ -40,8 +40,31 @@ class LineExtractor:
         # (Simplified versions for now)
         vertices = self.compute_intersections(snapped_lines, edge_image.shape)
 
-        logger.info(f"Extracted {len(snapped_lines)} lines and {len(vertices)} vertices.")
-        return snapped_lines, vertices, []
+        # 6. Directional Classification for Perspective
+        directions = self.classify_directions(snapped_lines)
+
+        logger.info(f"Extracted {len(snapped_lines)} lines and {len(vertices)} vertices. Dirs: { {k: len(v) for k,v in directions.items()} }")
+        return snapped_lines, vertices, directions
+
+    def classify_directions(self, lines):
+        """
+        Group lines into Vertical, Left-VP, and Right-VP buckets based on slope.
+        """
+        categories = {'vertical': [], 'left_vp': [], 'right_vp': [], 'other': []}
+        for l in lines:
+            x1, y1, x2, y2 = l
+            dx, dy = x2 - x1, y2 - y1
+            angle = np.degrees(np.arctan2(abs(dy), abs(dx)))
+            
+            if 75 < angle <= 90:
+                categories['vertical'].append(l)
+            else:
+                slope = dy / (dx + 1e-6)
+                if slope > 0:
+                    categories['right_vp'].append(l)
+                else:
+                    categories['left_vp'].append(l)
+        return categories
 
     def cluster_lines(self, lines):
         """

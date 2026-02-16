@@ -20,7 +20,7 @@ def run_pipeline(image_path, output_dir="output"):
     
     # Stage 2: Line Extraction
     line_extractor = LineExtractor()
-    lines, vertices, vps = line_extractor.extract_lines(edge_img)
+    lines, vertices, directions = line_extractor.extract_lines(edge_img)
     
     # Stage 3: Curve Extraction
     curve_extractor = CurveExtractor()
@@ -28,7 +28,7 @@ def run_pipeline(image_path, output_dir="output"):
     
     # Stage 4: Topology Reconstruction
     topology_recon = TopologyReconstructor()
-    topology = topology_recon.reconstruct(lines, vertices, curves, edge_img.shape)
+    topology = topology_recon.reconstruct(lines, vertices, curves, edge_img.shape, directions)
     
     # Stage 5: CadQuery Model Generation
     builder = ModelBuilder()
@@ -39,7 +39,7 @@ def run_pipeline(image_path, output_dir="output"):
         
         # Stage 6: Camera-Aligned Snapshot
         renderer = Renderer()
-        render_img = renderer.render_snapshot(model, vps)
+        render_img = renderer.render_snapshot(model, directions)
         lineart = renderer.get_lineart(render_img)
         
         import cv2

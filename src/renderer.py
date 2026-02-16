@@ -6,10 +6,9 @@ class Renderer:
     def __init__(self, output_size=(1200, 900)):
         self.output_size = output_size
 
-    def render_snapshot(self, model, vanishing_points):
+    def render_snapshot(self, model, directions):
         """
         Render a snapshot of the model aligned to sketch perspective.
-        (Placeholder for now, returns a dummy image)
         """
         logger.info("Rendering snapshot from model.")
         # In a real implementation, we would use Blender or PythonOCC
