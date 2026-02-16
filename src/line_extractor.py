@@ -47,8 +47,40 @@ class LineExtractor:
         directions['vp_left'] = self.estimate_vp(directions['left_vp'])
         directions['vp_right'] = self.estimate_vp(directions['right_vp'])
 
+        # 8. INTELLIGENCE: Filter Diagonals
+        # If a diagonal line points toward a VP, it's a perspective line, not a roof line
+        directions['diagonal'] = self.filter_roof_lines(directions['diagonal'], directions)
+
         logger.info(f"Extracted {len(snapped_lines)} lines. VPs: L={directions['vp_left']}, R={directions['vp_right']}")
         return snapped_lines, vertices, directions
+
+    def filter_roof_lines(self, diagonals, directions):
+        """
+        Ensure diagonals are truly roof slopes and not perspective lines.
+        """
+        roof_lines = []
+        vps = [v for v in [directions.get('vp_left'), directions.get('vp_right')] if v]
+        
+        for l in diagonals:
+            is_perspective = False
+            for vp in vps:
+                # Check if the line points toward the VP
+                # Line: (x1, y1) to (x2, y2). Vector v = (x2-x1, y2-y1)
+                # Vector to VP: v_vp = (vp_x - x1, vp_y - y1)
+                v = np.array([l[2]-l[0], l[3]-l[1]])
+                v_vp = np.array([vp[0]-l[0], vp[1]-l[1]])
+                
+                norm_v = v / (np.linalg.norm(v) + 1e-6)
+                norm_v_vp = v_vp / (np.linalg.norm(v_vp) + 1e-6)
+                
+                # If vectors are highly aligned (dot product near 1 or -1)
+                if abs(np.dot(norm_v, norm_v_vp)) > 0.95:
+                    is_perspective = True
+                    break
+            
+            if not is_perspective:
+                roof_lines.append(l)
+        return roof_lines
 
     def estimate_vp(self, lines):
         """

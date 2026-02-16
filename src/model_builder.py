@@ -53,6 +53,15 @@ class ModelBuilder:
                     .extrude(self.wall_thickness * 4, both=True)
                 )
                 model = model.cut(void)
+
+                # INTELLIGENCE: Mullion Injection
+                if op.get('type') == 'double_window':
+                    mullion = (
+                        cq.Workplane("XZ", origin=(world_x, front_y, op['z_level'] + op['h']/2))
+                        .rect(0.05, op['h'])
+                        .extrude(self.wall_thickness, both=True)
+                    )
+                    model = model.union(mullion)
             except:
                 continue
 

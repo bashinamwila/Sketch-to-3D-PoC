@@ -116,7 +116,7 @@ class TopologyReconstructor:
             logger.info(f"Inferred Roof Pitch: {pitch:.2f}")
 
         # 7. INTELLIGENCE: Opening Detection
-        openings = self.detect_openings(directions, curves, px_per_m)
+        openings = self.detect_openings(directions, curves, px_per_m, h_m)
 
         # 8. INTELLIGENCE: Scale Calibration (Refined)
         calibrated_px_per_m = px_per_m
@@ -153,7 +153,7 @@ class TopologyReconstructor:
         if not vertices: return 0.6
         return 0.4 
 
-    def detect_openings(self, directions, curves, px_per_m):
+    def detect_openings(self, directions, curves, px_per_m, h_m):
         """
         Capture windows/doors with Vertical Spatial Intelligence.
         """
@@ -166,9 +166,9 @@ class TopologyReconstructor:
         width_px = w_px_max - w_px_min + 1e-6
         
         # Building vertical bounds for Rel-Z calibration
-        y_px_min = min(min(l[1], l[3]) for l in verticals)
-        y_px_max = max(max(l[1], l[3]) for l in verticals)
-        total_h_px = y_px_max - y_px_min
+        y_px_min_full = min(min(l[1], l[3]) for l in verticals)
+        y_px_max_full = max(max(l[1], l[3]) for l in verticals)
+        total_h_px = y_px_max_full - y_px_min_full
 
         for curve in curves:
             pts = np.array(curve.get('points', []))
@@ -181,15 +181,23 @@ class TopologyReconstructor:
                     rel_x = ((min_p[1] + max_p[1])/2 - w_px_min) / width_px
                     is_door = (h_px / px_per_m) > 1.8
                     
+                    # INTELLIGENCE: Opening Type
+                    if is_door:
+                        otype = 'door'
+                    elif (w_px / h_px) > 1.5:
+                        otype = 'double_window'
+                    else:
+                        otype = 'window'
+
                     # Vertical Alignment logic
                     mid_y_px = (min_p[0] + max_p[0]) / 2
-                    # Normalized Z (0 at bottom, 1 at top)
-                    rel_z = (y_px_max - mid_y_px) / (total_h_px + 1e-6)
-                    sill_m = max(0.0, (rel_z * 3.0) - ((h_px / px_per_m) / 2))
+                    rel_z = (y_px_max_full - mid_y_px) / (total_h_px + 1e-6)
+                    sill_m = max(0.0, (rel_z * h_m) - ((h_px / px_per_m) / 2))
                     
                     openings.append({
                         'w': w_px / px_per_m, 'h': h_px / px_per_m, 
                         'rel_x': rel_x, 'is_door': is_door, 
+                        'type': otype,
                         'z_level': 0.0 if is_door else sill_m,
                         'parent_label': 'wing' if rel_x > 0.5 else 'main'
                     })
