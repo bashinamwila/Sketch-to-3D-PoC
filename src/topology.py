@@ -84,7 +84,6 @@ class TopologyReconstructor:
             wing_depth_m = d_m * wing_depth_ratio
             
             # INTELLIGENCE: Protrusion Offset
-            # The wing is 'closer' to camera (at y=0). Main block is set back.
             protrusion_offset_m = d_m * 0.2
             
             if wing_on_right:
@@ -120,25 +119,19 @@ class TopologyReconstructor:
         openings = self.detect_openings(directions, curves, px_per_m)
 
         # 8. INTELLIGENCE: Scale Calibration (Refined)
-        # If we detected a door, use its height (assume 2.1m) to calibrate the whole model
         calibrated_px_per_m = px_per_m
         for op in openings:
             if op['is_door']:
-                # h_px / px_per_m = h_m -> px_per_m = h_px / 2.1
-                # (We reverse calculate the pixel height)
                 h_px = op['h'] * px_per_m 
                 calibrated_px_per_m = h_px / 2.1
                 logger.info(f"Scale Calibrated from Door: {calibrated_px_per_m:.1f} px/m")
                 break
         
-        # Re-scale dimensions if calibrated
         if calibrated_px_per_m != px_per_m:
             ratio = px_per_m / calibrated_px_per_m
             w_m *= ratio
             d_m *= ratio
             h_m *= ratio
-            # Re-create footprint with new scale
-            # (Simplified for PoC)
             px_per_m = calibrated_px_per_m
 
         topology = {
@@ -158,11 +151,11 @@ class TopologyReconstructor:
 
     def find_optimal_wing_depth(self, vertices, px_per_m):
         if not vertices: return 0.6
-        return 0.4 # Default optimized for this sketch
+        return 0.4 
 
     def detect_openings(self, directions, curves, px_per_m):
         """
-        Capture windows/doors from curves and verticals.
+        Capture windows/doors with Vertical Spatial Intelligence.
         """
         openings = []
         verticals = directions.get('vertical', [])
@@ -171,8 +164,12 @@ class TopologyReconstructor:
         w_px_min = min(l[0] for l in verticals)
         w_px_max = max(l[0] for l in verticals)
         width_px = w_px_max - w_px_min + 1e-6
+        
+        # Building vertical bounds for Rel-Z calibration
+        y_px_min = min(min(l[1], l[3]) for l in verticals)
+        y_px_max = max(max(l[1], l[3]) for l in verticals)
+        total_h_px = y_px_max - y_px_min
 
-        # 1. Analyze Curves
         for curve in curves:
             pts = np.array(curve.get('points', []))
             if len(pts) < 4: continue
@@ -182,11 +179,18 @@ class TopologyReconstructor:
             if 15 < w_px < 200 and 15 < h_px < 250:
                 if 0.3 < (w_px / h_px) < 3.0:
                     rel_x = ((min_p[1] + max_p[1])/2 - w_px_min) / width_px
-                    # Assign to parent part based on rel_x
                     is_door = (h_px / px_per_m) > 1.8
+                    
+                    # Vertical Alignment logic
+                    mid_y_px = (min_p[0] + max_p[0]) / 2
+                    # Normalized Z (0 at bottom, 1 at top)
+                    rel_z = (y_px_max - mid_y_px) / (total_h_px + 1e-6)
+                    sill_m = max(0.0, (rel_z * 3.0) - ((h_px / px_per_m) / 2))
+                    
                     openings.append({
                         'w': w_px / px_per_m, 'h': h_px / px_per_m, 
-                        'rel_x': rel_x, 'is_door': is_door, 'z_level': 0.0 if is_door else 0.9,
+                        'rel_x': rel_x, 'is_door': is_door, 
+                        'z_level': 0.0 if is_door else sill_m,
                         'parent_label': 'wing' if rel_x > 0.5 else 'main'
                     })
 
@@ -197,10 +201,4 @@ class TopologyReconstructor:
         return unique_openings
 
     def reconstruct_plan(self, lines, vertices, curves):
-        # Fallback for 2D plans (Legacy logic)
         return {'view_type': 'plan', 'footprint': Polygon([(0,0), (10,0), (10,10), (0,10)]), 'openings': []}
-
-    def normalize_polygon(self, poly, origin):
-        ox, oy = origin
-        coords = [( (x - ox) / self.pixels_per_metre, (oy - y) / self.pixels_per_metre ) for x, y in poly.exterior.coords]
-        return Polygon(coords)
