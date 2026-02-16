@@ -34,14 +34,35 @@ class ModelBuilder:
         model = model.shell(-self.wall_thickness)
 
         # 4. Add Roof
-        # Attempt Tapered Hip Roof for all shapes first
-        try:
-            model = self.add_tapered_hip_roof(model, footprint, wall_h)
-        except Exception as e:
-            logger.warning(f"Tapered roof failed: {e}. Using Flat Roof fallback.")
-            model = self.add_flat_roof_parapet(model, footprint, wall_h)
+        # Check for composite decomposition (L-shape)
+        sub_footprints = topology.get('sub_footprints', [])
+        
+        if len(sub_footprints) > 1:
+            logger.info(f"Composite footprint detected ({len(sub_footprints)} parts). Using Composite Hip Roof.")
+            model = self.add_composite_hip_roof(model, sub_footprints, wall_h)
+        else:
+            # Simple shape
+            try:
+                model = self.add_tapered_hip_roof(model, footprint, wall_h)
+            except Exception as e:
+                logger.warning(f"Tapered roof failed: {e}. Using Flat Roof fallback.")
+                model = self.add_flat_roof_parapet(model, footprint, wall_h)
 
         logger.info("3D model generation complete.")
+        return model
+
+    def add_composite_hip_roof(self, model, sub_footprints, wall_h):
+        """
+        Add a hip roof by unioning hip roofs for each sub-rectangle.
+        """
+        for rect in sub_footprints:
+            try:
+                # Reuse the tapered roof logic for each part
+                # Note: add_tapered_hip_roof performs a Union. 
+                # So calling it sequentially adds each roof part to the model.
+                model = self.add_tapered_hip_roof(model, rect, wall_h)
+            except Exception as e:
+                logger.warning(f"Failed to add roof part: {e}")
         return model
 
     def add_tapered_hip_roof(self, model, footprint, wall_h):

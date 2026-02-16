@@ -64,59 +64,67 @@ class TopologyReconstructor:
         verticals = directions['vertical']
         w_px_min = min(l[0] for l in verticals) if verticals else 0
         w_px_max = max(l[0] for l in verticals) if verticals else 1
+        width_px = w_px_max - w_px_min
         
+        # Filter for true internal verticals (not just noisy corners)
         internal_verticals = [l for l in verticals 
-                              if (l[0] > w_px_min + (w_px_max - w_px_min) * 0.2) and 
-                                 (l[0] < w_px_max - (w_px_max - w_px_min) * 0.2)]
+                              if (l[0] > w_px_min + width_px * 0.25) and 
+                                 (l[0] < w_px_max - width_px * 0.25)]
         
         footprint = None
+        sub_footprints = [] # Store rectangles for composite roof generation
         
-        if len(internal_verticals) > 1:
+        if len(internal_verticals) > 0:
             logger.warning(f"Detected {len(internal_verticals)} internal vertical lines. Generating L-shaped footprint.")
             
-            # Calculate Split X position (relative to width)
-            avg_split_px = np.mean([l[0] for l in internal_verticals])
-            split_ratio = (avg_split_px - w_px_min) / (w_px_max - w_px_min)
+            # Density Check for Orientation (Left vs Right Wing)
+            # Count lines in left half vs right half of the building bounds
+            mid_x = w_px_min + width_px / 2
+            left_count = sum(1 for l in verticals if l[0] < mid_x)
+            right_count = sum(1 for l in verticals if l[0] > mid_x)
             
-            # Construct L-Shape
-            # Assume "Main Mass" is the larger side, "Wing" is the smaller side
-            # Wing depth = 60% of total depth
+            # If right side has significantly more lines, wing is likely on Right
+            wing_on_right = right_count > left_count
+            
+            # Calculate Split Position
+            avg_split_px = np.mean([l[0] for l in internal_verticals])
+            split_ratio = (avg_split_px - w_px_min) / width_px
+            
+            # Clamp split ratio to reasonable bounds for an L-shape (e.g. 0.3 to 0.7)
+            split_ratio = max(0.3, min(0.7, split_ratio))
             
             split_m = w_m * split_ratio
-            wing_depth_m = d_m * 0.6
+            wing_depth_m = d_m * 0.6 # Assume wing is 60% of depth
             
-            if split_ratio < 0.5:
-                # Wing is on the Left (smaller section), Main on Right
-                # This creates a "b" shape or inverted L
-                # Points: (0,0) -> (split, 0) -> (split, full_d) -> (w, full_d) -> (w, 0) ... wait
-                # Let's simplify: Union of two rects.
-                # Rect 1 (Wing): 0 to split, 0 to wing_depth
-                # Rect 2 (Main): split to w, 0 to d
-                # ... actually, looking at sketch, let's assume "Front" is y=0.
-                
-                # Polygon coordinates (Counter-Clockwise)
-                coords = [
-                    (0, 0), (split_m, 0), (split_m, d_m - wing_depth_m), 
-                    (w_m, d_m - wing_depth_m), (w_m, d_m), (0, d_m)
-                ]
-                # Wait, that shape is weird. Let's do Union.
-                p1 = Polygon([(0, 0), (split_m, 0), (split_m, wing_depth_m), (0, wing_depth_m)])
-                p2 = Polygon([(split_m, 0), (w_m, 0), (w_m, d_m), (split_m, d_m)])
-                footprint = unary_union([p1, p2])
-            else:
+            rect1 = None
+            rect2 = None
+
+            if wing_on_right:
                 # Wing is on the Right
-                # Rect 1 (Main): 0 to split, 0 to d
-                # Rect 2 (Wing): split to w, 0 to wing_depth
-                p1 = Polygon([(0, 0), (split_m, 0), (split_m, d_m), (0, d_m)])
-                p2 = Polygon([(split_m, 0), (w_m, 0), (w_m, wing_depth_m), (split_m, wing_depth_m)])
-                footprint = unary_union([p1, p2])
+                # Rect 1 (Main Block): Left side, full depth
+                rect1 = Polygon([(0, 0), (split_m, 0), (split_m, d_m), (0, d_m)])
+                # Rect 2 (Wing): Right side, partial depth (aligned to front or back? Let's assume Back/Top alignment for L)
+                # Aligning to 'back' (d_m) usually looks better for house additions
+                rect2 = Polygon([(split_m, 0), (w_m, 0), (w_m, wing_depth_m), (split_m, wing_depth_m)])
+            else:
+                # Wing is on the Left
+                # Rect 1 (Wing): Left side, partial depth
+                rect1 = Polygon([(0, 0), (split_m, 0), (split_m, wing_depth_m), (0, wing_depth_m)])
+                # Rect 2 (Main Block): Right side, full depth
+                rect2 = Polygon([(split_m, 0), (w_m, 0), (w_m, d_m), (split_m, d_m)])
+            
+            sub_footprints = [rect1, rect2]
+            footprint = unary_union(sub_footprints)
         else:
             # Simple Box
-            footprint = Polygon([(0,0), (w_m, 0), (w_m, d_m), (0, d_m)])
+            rect = Polygon([(0,0), (w_m, 0), (w_m, d_m), (0, d_m)])
+            footprint = rect
+            sub_footprints = [rect]
         
         topology = {
             'view_type': 'perspective',
             'footprint': footprint,
+            'sub_footprints': sub_footprints, # Pass decomposition to builder
             'height': h_m,
             'width': w_m,
             'depth': d_m,
