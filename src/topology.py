@@ -146,61 +146,52 @@ class TopologyReconstructor:
 
     def detect_openings(self, img_shape, directions):
         """
-        Intelligence Layer: Use contour analysis to find windows/doors.
+        Aggressive Feature Detection: Find all potential windows/doors.
         """
         openings = []
-        
-        # We need the edge image here. For PoC, let's look at the 'diagonal' lines
-        # which often capture window frames in sketches.
-        # Alternatively, we rely on the vertices which cluster around openings.
-        
         verticals = directions.get('vertical', [])
         if not verticals: return []
         
-        # Sort verticals by X position
         verticals.sort(key=lambda x: x[0])
         
-        # Grouping logic: Look for 'pairs' of vertical lines that define a rectangle
-        for i in range(len(verticals) - 1):
-            l1 = verticals[i]
-            l2 = verticals[i+1]
-            
-            dx = abs(l1[0] - l2[0])
-            # Common window width in pixels (approx 30-100px)
-            if 15 < dx < 120:
-                h1 = abs(l1[3] - l1[1])
-                h2 = abs(l2[3] - l2[1])
-                # If they have similar height and are aligned vertically
-                if abs(h1 - h2) < 30:
-                    avg_h = (h1 + h2) / 2
-                    avg_y = (l1[1] + l1[3] + l2[1] + l2[3]) / 4
-                    
-                    # Convert to world units
-                    w_m = dx / self.pixels_per_metre
-                    h_m = avg_h / self.pixels_per_metre
-                    
-                    # Heuristic for door vs window based on height from 'ground'
-                    # (Assuming maxy of sketch is ground)
-                    is_door = h_m > 1.8 
-                    
-                    # Normalized X (relative to center of building)
-                    center_x = (l1[0] + l2[0]) / 2
-                    w_px_min = min(l[0] for l in verticals)
-                    w_px_max = max(l[0] for l in verticals)
-                    rel_x = (center_x - w_px_min) / (w_px_max - w_px_min + 1e-6)
-                    
-                    openings.append({
-                        'w': w_m, 
-                        'h': h_m, 
-                        'rel_x': rel_x, 
-                        'is_door': is_door,
-                        'z_level': 0.0 if is_door else 0.9 # Sill height
-                    })
+        # Cross-pair verticals to find rectangles
+        for i in range(len(verticals)):
+            for j in range(i + 1, min(i + 10, len(verticals))):
+                l1, l2 = verticals[i], verticals[j]
+                
+                dx = abs(l1[0] - l2[0])
+                if 10 < dx < 150: # Wider range
+                    h1 = abs(l1[3] - l1[1])
+                    h2 = abs(l2[3] - l2[1])
+                    # Relaxed alignment tolerance
+                    if abs(h1 - h2) < 50:
+                        w_m = dx / self.pixels_per_metre
+                        h_m = max(h1, h2) / self.pixels_per_metre
+                        
+                        center_x = (l1[0] + l2[0]) / 2
+                        w_px_min = min(l[0] for l in verticals)
+                        w_px_max = max(l[0] for l in verticals)
+                        rel_x = (center_x - w_px_min) / (w_px_max - w_px_min + 1e-6)
+                        
+                        # Use Y-position to guess if it's a door (near bottom) or window
+                        # Normalized Y (0 at top, 1 at bottom of verticals)
+                        y_bottom = max(l1[1], l1[3], l2[1], l2[3])
+                        y_px_max = max(l[1] for l in verticals + [l1,l2]) # error here potentially
+                        # Actually just use simple height threshold
+                        is_door = h_m > 1.9
+                        
+                        openings.append({
+                            'w': w_m, 
+                            'h': h_m, 
+                            'rel_x': rel_x, 
+                            'is_door': is_door,
+                            'z_level': 0.0 if is_door else 0.9
+                        })
         
-        # Deduplicate overlapping detections
+        # Deduplicate with 10% overlap tolerance
         unique_openings = []
-        for op in openings:
-            if not any(abs(op['rel_x'] - u['rel_x']) < 0.05 for u in unique_openings):
+        for op in sorted(openings, key=lambda x: x['w'], reverse=True):
+            if not any(abs(op['rel_x'] - u['rel_x']) < 0.1 for u in unique_openings):
                 unique_openings.append(op)
                 
         return unique_openings
